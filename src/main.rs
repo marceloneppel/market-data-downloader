@@ -95,24 +95,39 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn download(args: DownloadArgs) -> Result<()> {
-    // Format milliseconds since epoch into UTC timestamp string
-    fn fmt_ts(ms: i64) -> String {
-        if let Some(dt) = Utc.timestamp_millis_opt(ms).single() {
-            dt.format("%Y-%m-%d %H:%M:%S").to_string()
-        } else {
-            ms.to_string()
+// Format milliseconds since epoch into UTC timestamp string
+pub(crate) fn fmt_ts(ms: i64) -> String {
+    if let Some(dt) = Utc.timestamp_millis_opt(ms).single() {
+        dt.format("%Y-%m-%d %H:%M:%S").to_string()
+    } else {
+        ms.to_string()
+    }
+}
+
+pub(crate) fn compute_out_path(ticker: &str, from: NaiveDate, to: NaiveDate, format: OutputFormat, out: &Option<String>) -> String {
+    match out {
+        Some(p) => p.clone(),
+        None => {
+            let ext = match format { OutputFormat::Csv => "csv", OutputFormat::Json => "json" };
+            format!("{}_{}_{}.{}", ticker, from, to, ext)
         }
     }
+}
+
+pub(crate) fn ensure_api_key_present(url: &mut Url, api_key: &str) {
+    let has_key = url.query_pairs().any(|(k, _)| k == "apiKey");
+    if !has_key {
+        url.query_pairs_mut().append_pair("apiKey", api_key);
+    }
+}
+
+async fn download(args: DownloadArgs) -> Result<()> {
     let api_key = args
         .api_key
         .or_else(|| env::var("POLYGON_API_KEY").ok())
         .ok_or_else(|| anyhow!("API key not provided. Use --apikey or set POLYGON_API_KEY."))?;
 
-    let out_path = args.out.unwrap_or_else(|| {
-        let ext = match args.format { OutputFormat::Csv => "csv", OutputFormat::Json => "json" };
-        format!("{}_{}_{}.{}", args.ticker, args.from, args.to, ext)
-    });
+    let out_path = compute_out_path(&args.ticker, args.from, args.to, args.format, &args.out);
 
     let client = reqwest::Client::builder()
         .user_agent("polygon-data-downloader/0.1")
@@ -228,10 +243,7 @@ async fn download(args: DownloadArgs) -> Result<()> {
             Some(next_url) => {
                 let mut u = Url::parse(&next_url)?;
                 // Ensure the API key is always included on subsequent pages
-                let has_key = u.query_pairs().any(|(k, _)| k == "apiKey");
-                if !has_key {
-                    u.query_pairs_mut().append_pair("apiKey", &api_key);
-                }
+                ensure_api_key_present(&mut u, &api_key);
                 Some(u)
             }
             None => None,
@@ -260,4 +272,66 @@ async fn download(args: DownloadArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::NaiveDate;
+
+    #[test]
+    fn test_fmt_ts_zero() {
+        assert_eq!(fmt_ts(0), "1970-01-01 00:00:00");
+    }
+
+    #[test]
+    fn test_fmt_ts_known() {
+        // 2024-04-01 00:00:00 UTC in ms
+        let ts = 1711929600000i64;
+        assert_eq!(fmt_ts(ts), "2024-04-01 00:00:00");
+    }
+
+    #[test]
+    fn test_compute_out_path_defaults_csv() {
+        let d1 = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
+        let d2 = NaiveDate::from_ymd_opt(2025, 1, 31).unwrap();
+        let out = compute_out_path("I:NDX", d1, d2, OutputFormat::Csv, &None);
+        assert_eq!(out, "I:NDX_2025-01-01_2025-01-31.csv");
+    }
+
+    #[test]
+    fn test_compute_out_path_defaults_json() {
+        let d1 = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
+        let d2 = NaiveDate::from_ymd_opt(2024, 2, 2).unwrap();
+        let out = compute_out_path("AAPL", d1, d2, OutputFormat::Json, &None);
+        assert_eq!(out, "AAPL_2024-02-01_2024-02-02.json");
+    }
+
+    #[test]
+    fn test_compute_out_path_respects_explicit() {
+        let d1 = NaiveDate::from_ymd_opt(2025, 9, 1).unwrap();
+        let d2 = NaiveDate::from_ymd_opt(2025, 9, 4).unwrap();
+        let explicit = Some(String::from("custom.csv"));
+        let out = compute_out_path("I:SPX", d1, d2, OutputFormat::Csv, &explicit);
+        assert_eq!(out, "custom.csv");
+    }
+
+    #[test]
+    fn test_ensure_api_key_present_adds_when_missing() {
+        let mut u = Url::parse("https://example.com/path?foo=1").unwrap();
+        ensure_api_key_present(&mut u, "KEY123");
+        let query: Vec<_> = u.query_pairs().collect();
+        assert!(query.iter().any(|(k,v)| k=="apiKey" && v=="KEY123"));
+    }
+
+    #[test]
+    fn test_ensure_api_key_present_keeps_when_present() {
+        let mut u = Url::parse("https://example.com/path?apiKey=ABC&x=1").unwrap();
+        ensure_api_key_present(&mut u, "SHOULD_NOT_OVERRIDE");
+        // ensure existing value is not overridden
+        let pairs: Vec<_> = u.query_pairs().collect();
+        let found: Vec<_> = pairs.into_iter().filter(|(k,_)| k=="apiKey").collect();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].1, "ABC");
+    }
 }
