@@ -225,7 +225,15 @@ async fn download(args: DownloadArgs) -> Result<()> {
 
         // Determine next page
         next = match aggs.next_url {
-            Some(next_url) => Some(Url::parse(&next_url)?),
+            Some(next_url) => {
+                let mut u = Url::parse(&next_url)?;
+                // Ensure the API key is always included on subsequent pages
+                let has_key = u.query_pairs().any(|(k, _)| k == "apiKey");
+                if !has_key {
+                    u.query_pairs_mut().append_pair("apiKey", &api_key);
+                }
+                Some(u)
+            }
             None => None,
         };
 
