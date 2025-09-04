@@ -82,7 +82,7 @@ struct Agg {
     h: f64,   // high
     l: f64,   // low
     c: f64,   // close
-    v: f64,   // volume
+    v: Option<f64>,   // volume may be missing for indices
     vw: Option<f64>,
     n: Option<i64>,
 }
@@ -195,7 +195,7 @@ async fn download(args: DownloadArgs) -> Result<()> {
                         r.h.to_string(),
                         r.l.to_string(),
                         r.c.to_string(),
-                        r.v.to_string(),
+                        r.v.map(|x| x.to_string()).unwrap_or_default(),
                     ])
                     .ok();
                 }
