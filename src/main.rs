@@ -1,7 +1,7 @@
 use std::{env, thread, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
-use chrono::NaiveDate;
+use chrono::{NaiveDate, Utc, TimeZone};
 use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 use reqwest::Url;
 use serde::Deserialize;
@@ -96,6 +96,14 @@ async fn main() -> Result<()> {
 }
 
 async fn download(args: DownloadArgs) -> Result<()> {
+    // Format milliseconds since epoch into UTC timestamp string
+    fn fmt_ts(ms: i64) -> String {
+        if let Some(dt) = Utc.timestamp_millis_opt(ms).single() {
+            dt.format("%Y-%m-%d %H:%M:%S").to_string()
+        } else {
+            ms.to_string()
+        }
+    }
     let api_key = args
         .api_key
         .or_else(|| env::var("POLYGON_API_KEY").ok())
@@ -182,7 +190,7 @@ async fn download(args: DownloadArgs) -> Result<()> {
             Sink::Csv(w) => {
                 for r in &results {
                     w.write_record(&[
-                        r.t.to_string(),
+                        fmt_ts(r.t),
                         r.o.to_string(),
                         r.h.to_string(),
                         r.l.to_string(),
@@ -198,7 +206,7 @@ async fn download(args: DownloadArgs) -> Result<()> {
                 for (i, r) in results.iter().enumerate() {
                     if wrote_any || i > 0 { write!(f, ",").ok(); }
                     let obj = serde_json::json!({
-                        "timestamp": r.t,
+                        "timestamp": fmt_ts(r.t),
                         "open": r.o,
                         "high": r.h,
                         "low": r.l,
