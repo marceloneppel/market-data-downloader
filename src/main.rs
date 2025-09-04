@@ -1,4 +1,4 @@
-use std::{env, thread, time::Duration};
+use std::{env, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
 use chrono::{NaiveDate, Utc, TimeZone};
@@ -239,7 +239,7 @@ async fn download(args: DownloadArgs) -> Result<()> {
 
         if next.is_some() {
             if args.verbose > 0 { eprintln!("Sleeping {}s to respect rate limit...", args.wait_secs); }
-            thread::sleep(Duration::from_secs(args.wait_secs));
+            tokio::time::sleep(Duration::from_secs(args.wait_secs)).await;
         } else {
             if args.verbose > 0 { eprintln!("Done. Total pages: {}", page); }
             break;
