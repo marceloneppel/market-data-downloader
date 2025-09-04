@@ -9,8 +9,8 @@ use serde::Deserialize;
 /// Polygon.io minute data downloader
 ///
 /// Examples:
-///   polygon-data-downloader download --ticker I:SPX --from 2024-01-01 --to 2024-01-03 --out spx.csv
-///   POLYGON_API_KEY=... polygon-data-downloader download -t I:NDX -f 2024-02-01 -T 2024-02-01 --json
+///   polygon-data-downloader download --apikey=... --ticker AAPL --from 2024-01-01 --to 2024-01-03 --out aapl.csv
+///   POLYGON_API_KEY=... polygon-data-downloader download -t I:NDX -f 2024-02-01 -T 2024-02-01 --format json
 #[derive(Parser, Debug)]
 #[command(name = "polygon-data-downloader", version, about)]
 struct Cli {
