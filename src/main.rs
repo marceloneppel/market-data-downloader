@@ -358,9 +358,8 @@ mod tests {
             "-f","2025-01-01",
             "-T","2025-01-01",
         ]);
-        if let Commands::Download(args) = cli.command {
-            assert!(!args.no_header);
-        } else { panic!("expected download"); }
+        let Commands::Download(args) = cli.command;
+        assert!(!args.no_header);
 
         // explicit true via --no-header
         let cli2 = Cli::parse_from([
@@ -371,8 +370,7 @@ mod tests {
             "-T","2025-01-01",
             "--no-header",
         ]);
-        if let Commands::Download(args2) = cli2.command {
-            assert!(args2.no_header);
-        } else { panic!("expected download"); }
+        let Commands::Download(args2) = cli2.command;
+        assert!(args2.no_header);
     }
 }
