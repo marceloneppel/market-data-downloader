@@ -192,7 +192,7 @@ async fn download(args: DownloadArgs) -> Result<()> {
                     writer_csv = csv::Writer::from_writer(file);
                     // write header (unless omitted)
                     if !args.no_header {
-                        writer_csv.write_record(["timestamp", "open", "high", "low", "close", "volume"]).ok();
+                        writer_csv.write_record(["ticker", "timestamp", "open", "high", "low", "close", "volume"]).ok();
                     }
                     sink = Sink::Csv(writer_csv);
                 }
@@ -210,13 +210,20 @@ async fn download(args: DownloadArgs) -> Result<()> {
         match &mut sink {
             Sink::Csv(w) => {
                 for r in &results {
+                    let ts = fmt_ts(r.t);
+                    let o = r.o.to_string();
+                    let h = r.h.to_string();
+                    let l = r.l.to_string();
+                    let c = r.c.to_string();
+                    let v = r.v.map(|x| x.to_string()).unwrap_or_default();
                     w.write_record(&[
-                        fmt_ts(r.t),
-                        r.o.to_string(),
-                        r.h.to_string(),
-                        r.l.to_string(),
-                        r.c.to_string(),
-                        r.v.map(|x| x.to_string()).unwrap_or_default(),
+                        args.ticker.as_str(),
+                        ts.as_str(),
+                        o.as_str(),
+                        h.as_str(),
+                        l.as_str(),
+                        c.as_str(),
+                        v.as_str(),
                     ])
                     .ok();
                 }

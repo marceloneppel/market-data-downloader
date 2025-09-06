@@ -218,7 +218,7 @@ fn csv_no_header_flag_should_omit_header() {
     let mut lines = data.lines();
     if let Some(first) = lines.next() {
         // The first line should not be the header when --no-header is used.
-        assert!(!first.to_lowercase().contains("timestamp,open,high,low,close,volume"), "Header should be omitted with --no-header");
+        assert!(!first.to_lowercase().contains("ticker,timestamp,open,high,low,close,volume"), "Header should be omitted with --no-header");
     } else {
         panic!("CSV file is empty");
     }
