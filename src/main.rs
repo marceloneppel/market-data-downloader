@@ -71,6 +71,10 @@ struct DownloadArgs {
     /// Verbose logging
     #[arg(short = 'v', long = "verbose", action = ArgAction::Count)]
     verbose: u8,
+
+    /// Maximum number of decimal places for OHLCV values
+    #[arg(long = "max-decimals", default_value_t = 2u8)]
+    max_decimals: u8,
 }
 
 #[derive(Debug, Deserialize)]
@@ -209,13 +213,17 @@ async fn download(args: DownloadArgs) -> Result<()> {
 
         match &mut sink {
             Sink::Csv(w) => {
+                let prec = args.max_decimals as usize;
                 for r in &results {
                     let ts = fmt_ts(r.t);
-                    let o = r.o.to_string();
-                    let h = r.h.to_string();
-                    let l = r.l.to_string();
-                    let c = r.c.to_string();
-                    let v = r.v.map(|x| x.to_string()).unwrap_or_default();
+                    let o = format!("{:.1$}", r.o, prec);
+                    let h = format!("{:.1$}", r.h, prec);
+                    let l = format!("{:.1$}", r.l, prec);
+                    let c = format!("{:.1$}", r.c, prec);
+                    let v = match r.v {
+                        Some(val) => format!("{:.1$}", val, prec),
+                        None => String::new(),
+                    };
                     w.write_record(&[
                         args.ticker.as_str(),
                         ts.as_str(),
@@ -231,16 +239,19 @@ async fn download(args: DownloadArgs) -> Result<()> {
             }
             Sink::Json(f) => {
                 use std::io::Write;
+                let prec = args.max_decimals as i32;
+                let pow = 10f64.powi(prec);
+                let round_to = |x: f64| (x * pow).round() / pow;
                 for (i, r) in results.iter().enumerate() {
                     if wrote_any || i > 0 { write!(f, ",").ok(); }
                     let obj = serde_json::json!({
                         "timestamp": fmt_ts(r.t),
-                        "open": r.o,
-                        "high": r.h,
-                        "low": r.l,
-                        "close": r.c,
-                        "volume": r.v,
-                        "vw": r.vw,
+                        "open": round_to(r.o),
+                        "high": round_to(r.h),
+                        "low": round_to(r.l),
+                        "close": round_to(r.c),
+                        "volume": r.v.map(|v| round_to(v)),
+                        "vw": r.vw.map(|x| round_to(x)),
                         "n": r.n,
                     });
                     write!(f, "{}", obj).ok();
@@ -372,5 +383,32 @@ mod tests {
         ]);
         let Commands::Download(args2) = cli2.command;
         assert!(args2.no_header);
+    }
+
+    #[test]
+    fn test_cli_default_max_decimals() {
+        let cli = Cli::parse_from([
+            "polygon-data-downloader",
+            "download",
+            "-t","AAPL",
+            "-f","2025-01-01",
+            "-T","2025-01-01",
+        ]);
+        let Commands::Download(args) = cli.command;
+        assert_eq!(args.max_decimals, 2);
+    }
+
+    #[test]
+    fn test_cli_override_max_decimals() {
+        let cli = Cli::parse_from([
+            "polygon-data-downloader",
+            "download",
+            "-t","AAPL",
+            "-f","2025-01-01",
+            "-T","2025-01-01",
+            "--max-decimals","4",
+        ]);
+        let Commands::Download(args) = cli.command;
+        assert_eq!(args.max_decimals, 4);
     }
 }
