@@ -180,3 +180,47 @@ fn missing_api_key_should_fail_fast() {
         err
     );
 }
+
+
+#[test]
+fn csv_no_header_flag_should_omit_header() {
+    if std::env::var("POLYGON_API_KEY").is_err() {
+        eprintln!("skipped: set POLYGON_API_KEY to run integration tests");
+        return;
+    }
+    let from = NaiveDate::from_ymd_opt(2025, 1, 2).unwrap();
+    let to = from;
+    let out = format!("AAPL_{}_{}.csv", from, to);
+    cleanup(&out);
+
+    let mut cmd = Command::new(bin());
+    env_with_key(&mut cmd);
+    let output = cmd
+        .arg("download")
+        .arg("-t").arg("AAPL")
+        .arg("-f").arg(from.to_string())
+        .arg("-T").arg(to.to_string())
+        .arg("--granularity").arg("day")
+        .arg("--format").arg("csv")
+        .arg("--no-header")
+        .output()
+        .expect("failed to run");
+
+    if !output.status.success() {
+        panic!(
+            "Download failed. stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let data = fs::read_to_string(&out).expect("output file missing");
+    let mut lines = data.lines();
+    if let Some(first) = lines.next() {
+        // The first line should not be the header when --no-header is used.
+        assert!(!first.to_lowercase().contains("timestamp,open,high,low,close,volume"), "Header should be omitted with --no-header");
+    } else {
+        panic!("CSV file is empty");
+    }
+    let _ = fs::remove_file(&out);
+}

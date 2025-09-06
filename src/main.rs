@@ -60,6 +60,10 @@ struct DownloadArgs {
     #[arg(long = "granularity", value_enum, default_value_t = Granularity::Minute)]
     granularity: Granularity,
 
+    /// Omit header row in CSV output
+    #[arg(long = "no-header", default_value_t = false)]
+    no_header: bool,
+
     /// Respect free plan by waiting between requests (~12s for 5 req/min)
     #[arg(long = "rate-limit-wait-secs", default_value_t = 12u64)]
     wait_secs: u64,
@@ -186,8 +190,10 @@ async fn download(args: DownloadArgs) -> Result<()> {
                     let file = std::fs::File::create(&out_path)
                         .with_context(|| format!("Cannot create {}", out_path))?;
                     writer_csv = csv::Writer::from_writer(file);
-                    // write header
-                    writer_csv.write_record(["timestamp", "open", "high", "low", "close", "volume"]).ok();
+                    // write header (unless omitted)
+                    if !args.no_header {
+                        writer_csv.write_record(["timestamp", "open", "high", "low", "close", "volume"]).ok();
+                    }
                     sink = Sink::Csv(writer_csv);
                 }
                 OutputFormat::Json => {
@@ -333,5 +339,33 @@ mod tests {
         let found: Vec<_> = pairs.into_iter().filter(|(k,_)| k=="apiKey").collect();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].1, "ABC");
+    }
+
+    #[test]
+    fn test_cli_parses_no_header_flag() {
+        // default is false
+        let cli = Cli::parse_from([
+            "polygon-data-downloader",
+            "download",
+            "-t","AAPL",
+            "-f","2025-01-01",
+            "-T","2025-01-01",
+        ]);
+        if let Commands::Download(args) = cli.command {
+            assert!(!args.no_header);
+        } else { panic!("expected download"); }
+
+        // explicit true via --no-header
+        let cli2 = Cli::parse_from([
+            "polygon-data-downloader",
+            "download",
+            "-t","AAPL",
+            "-f","2025-01-01",
+            "-T","2025-01-01",
+            "--no-header",
+        ]);
+        if let Commands::Download(args2) = cli2.command {
+            assert!(args2.no_header);
+        } else { panic!("expected download"); }
     }
 }
