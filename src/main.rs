@@ -9,10 +9,10 @@ use serde::Deserialize;
 /// Polygon.io minute data downloader
 ///
 /// Examples:
-///   polygon-data-downloader download --apikey=... --ticker AAPL --from 2024-01-01 --to 2024-01-03 --out aapl.csv
-///   POLYGON_API_KEY=... polygon-data-downloader download -t I:NDX -f 2024-02-01 -T 2024-02-01 --format json
+///   market-data-downloader download --apikey=... --ticker AAPL --from 2024-01-01 --to 2024-01-03 --out aapl.csv
+///   POLYGON_API_KEY=... market-data-downloader download -t I:NDX -f 2024-02-01 -T 2024-02-01 --format json
 #[derive(Parser, Debug)]
-#[command(name = "polygon-data-downloader", version, about)]
+#[command(name = "market-data-downloader", version, about)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -147,7 +147,7 @@ async fn download(args: DownloadArgs) -> Result<()> {
     let out_path = compute_out_path(&args.ticker, args.from, args.to, args.format, &args.out);
 
     let client = reqwest::Client::builder()
-        .user_agent("polygon-data-downloader/0.1")
+        .user_agent("market-data-downloader/0.1")
         .build()?;
 
     let mut writer_csv;
@@ -421,7 +421,7 @@ mod tests {
     fn test_cli_parses_no_header_flag() {
         // default is false
         let cli = Cli::parse_from([
-            "polygon-data-downloader",
+            "market-data-downloader",
             "download",
             "-t","AAPL",
             "-f","2025-01-01",
@@ -432,7 +432,7 @@ mod tests {
 
         // explicit true via --no-header
         let cli2 = Cli::parse_from([
-            "polygon-data-downloader",
+            "market-data-downloader",
             "download",
             "-t","AAPL",
             "-f","2025-01-01",
@@ -446,7 +446,7 @@ mod tests {
     #[test]
     fn test_cli_default_max_decimals() {
         let cli = Cli::parse_from([
-            "polygon-data-downloader",
+            "market-data-downloader",
             "download",
             "-t","AAPL",
             "-f","2025-01-01",
@@ -459,7 +459,7 @@ mod tests {
     #[test]
     fn test_cli_override_max_decimals() {
         let cli = Cli::parse_from([
-            "polygon-data-downloader",
+            "market-data-downloader",
             "download",
             "-t","AAPL",
             "-f","2025-01-01",
@@ -474,7 +474,7 @@ mod tests {
     fn test_cli_split_by_day_flag() {
         // default is false
         let cli = Cli::parse_from([
-            "polygon-data-downloader",
+            "market-data-downloader",
             "download",
             "-t","AAPL",
             "-f","2025-01-01",
@@ -485,7 +485,7 @@ mod tests {
 
         // explicit
         let cli2 = Cli::parse_from([
-            "polygon-data-downloader",
+            "market-data-downloader",
             "download",
             "-t","AAPL",
             "-f","2025-01-01",

@@ -4,7 +4,7 @@ use chrono::NaiveDate;
 
 fn bin() -> std::path::PathBuf {
     // Path to the built binary during `cargo test`
-    assert_cmd::cargo::cargo_bin("polygon-data-downloader")
+    assert_cmd::cargo::cargo_bin("market-data-downloader")
 }
 
 fn cleanup(path: &str) {
