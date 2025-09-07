@@ -1,7 +1,7 @@
 use std::{env, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
-use chrono::{NaiveDate, Utc, TimeZone};
+use chrono::{NaiveDate, Utc, TimeZone, Datelike};
 use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 use reqwest::Url;
 use serde::Deserialize;
@@ -75,6 +75,10 @@ struct DownloadArgs {
     /// Maximum number of decimal places for OHLCV values
     #[arg(long = "max-decimals", default_value_t = 2u8)]
     max_decimals: u8,
+
+    /// Split output into per-day CSV files under output/YYYY/MM/TICKER_YYYY-MM-DD.csv
+    #[arg(long = "split-by-day", default_value_t = false)]
+    split_by_day: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -135,6 +139,10 @@ async fn download(args: DownloadArgs) -> Result<()> {
         .or_else(|| env::var("POLYGON_API_KEY").ok())
         .ok_or_else(|| anyhow!("API key not provided. Use --apikey or set POLYGON_API_KEY."))?;
 
+    if args.split_by_day && matches!(args.format, OutputFormat::Json) {
+        return Err(anyhow!("--split-by-day currently supports CSV format only"));
+    }
+
     let out_path = compute_out_path(&args.ticker, args.from, args.to, args.format, &args.out);
 
     let client = reqwest::Client::builder()
@@ -187,80 +195,113 @@ async fn download(args: DownloadArgs) -> Result<()> {
         let aggs: AggsResponse = resp.json().await.with_context(|| "Invalid JSON from API")?;
         let results = aggs.results.unwrap_or_default();
 
-        if !wrote_any && !results.is_empty() {
-            // Open sink lazily
-            match args.format {
-                OutputFormat::Csv => {
-                    let file = std::fs::File::create(&out_path)
-                        .with_context(|| format!("Cannot create {}", out_path))?;
-                    writer_csv = csv::Writer::from_writer(file);
-                    // write header (unless omitted)
-                    if !args.no_header {
-                        writer_csv.write_record(["ticker", "timestamp", "open", "high", "low", "close", "volume"]).ok();
+        if args.split_by_day {
+            // Write each record into per-day CSV under output/YYYY/MM/TICKER_YYYY-MM-DD.csv
+            use std::fs::{OpenOptions, create_dir_all, metadata};
+            use std::io::Write as _;
+            let prec = args.max_decimals as usize;
+            for r in &results {
+                if let Some(dt) = Utc.timestamp_millis_opt(r.t).single() {
+                    let date = dt.date_naive();
+                    let year = date.year();
+                    let month = date.month();
+                    let day = date.day();
+                    let dir = format!("output/{}/{:02}", year, month);
+                    create_dir_all(&dir).with_context(|| format!("Cannot create directory {}", dir))?;
+                    let file_path = format!("{}/{}_{}-{:02}-{:02}.csv", dir, args.ticker, year, month, day);
+                    let mut file = OpenOptions::new().create(true).append(true).open(&file_path)
+                        .with_context(|| format!("Cannot open {}", file_path))?;
+                    let is_new = metadata(&file_path).map(|m| m.len() == 0).unwrap_or(true);
+                    // Write header if new and not omitted
+                    if is_new && !args.no_header {
+                        writeln!(file, "ticker,timestamp,open,high,low,close,volume").ok();
                     }
-                    sink = Sink::Csv(writer_csv);
-                }
-                OutputFormat::Json => {
-                    let file = std::fs::File::create(&out_path)
-                        .with_context(|| format!("Cannot create {}", out_path))?;
-                    // Write opening bracket for an array
-                    use std::io::Write;
-                    write!(&file, "[").ok();
-                    sink = Sink::Json(file);
-                }
-            }
-        }
-
-        match &mut sink {
-            Sink::Csv(w) => {
-                let prec = args.max_decimals as usize;
-                for r in &results {
                     let ts = fmt_ts(r.t);
                     let o = format!("{:.1$}", r.o, prec);
                     let h = format!("{:.1$}", r.h, prec);
                     let l = format!("{:.1$}", r.l, prec);
                     let c = format!("{:.1$}", r.c, prec);
-                    let v = match r.v {
-                        Some(val) => format!("{:.1$}", val, prec),
-                        None => String::new(),
-                    };
-                    w.write_record(&[
-                        args.ticker.as_str(),
-                        ts.as_str(),
-                        o.as_str(),
-                        h.as_str(),
-                        l.as_str(),
-                        c.as_str(),
-                        v.as_str(),
-                    ])
-                    .ok();
+                    let v = match r.v { Some(val) => format!("{:.1$}", val, prec), None => String::from("") };
+                    writeln!(file, "{},{},{},{},{},{},{}", args.ticker, ts, o, h, l, c, v).ok();
                 }
-                w.flush().ok();
             }
-            Sink::Json(f) => {
-                use std::io::Write;
-                let prec = args.max_decimals as i32;
-                let pow = 10f64.powi(prec);
-                let round_to = |x: f64| (x * pow).round() / pow;
-                for (i, r) in results.iter().enumerate() {
-                    if wrote_any || i > 0 { write!(f, ",").ok(); }
-                    let obj = serde_json::json!({
-                        "timestamp": fmt_ts(r.t),
-                        "open": round_to(r.o),
-                        "high": round_to(r.h),
-                        "low": round_to(r.l),
-                        "close": round_to(r.c),
-                        "volume": r.v.map(|v| round_to(v)),
-                        "vw": r.vw.map(|x| round_to(x)),
-                        "n": r.n,
-                    });
-                    write!(f, "{}", obj).ok();
+            wrote_any = wrote_any || !results.is_empty();
+        } else {
+            if !wrote_any && !results.is_empty() {
+                // Open sink lazily
+                match args.format {
+                    OutputFormat::Csv => {
+                        let file = std::fs::File::create(&out_path)
+                            .with_context(|| format!("Cannot create {}", out_path))?;
+                        writer_csv = csv::Writer::from_writer(file);
+                        // write header (unless omitted)
+                        if !args.no_header {
+                            writer_csv.write_record(["ticker", "timestamp", "open", "high", "low", "close", "volume"]).ok();
+                        }
+                        sink = Sink::Csv(writer_csv);
+                    }
+                    OutputFormat::Json => {
+                        let file = std::fs::File::create(&out_path)
+                            .with_context(|| format!("Cannot create {}", out_path))?;
+                        // Write opening bracket for an array
+                        use std::io::Write;
+                        write!(&file, "[").ok();
+                        sink = Sink::Json(file);
+                    }
                 }
-                f.flush().ok();
             }
-            Sink::None => {}
+
+            match &mut sink {
+                Sink::Csv(w) => {
+                    let prec = args.max_decimals as usize;
+                    for r in &results {
+                        let ts = fmt_ts(r.t);
+                        let o = format!("{:.1$}", r.o, prec);
+                        let h = format!("{:.1$}", r.h, prec);
+                        let l = format!("{:.1$}", r.l, prec);
+                        let c = format!("{:.1$}", r.c, prec);
+                        let v = match r.v {
+                            Some(val) => format!("{:.1$}", val, prec),
+                            None => String::new(),
+                        };
+                        w.write_record(&[
+                            args.ticker.as_str(),
+                            ts.as_str(),
+                            o.as_str(),
+                            h.as_str(),
+                            l.as_str(),
+                            c.as_str(),
+                            v.as_str(),
+                        ])
+                        .ok();
+                    }
+                    w.flush().ok();
+                }
+                Sink::Json(f) => {
+                    use std::io::Write;
+                    let prec = args.max_decimals as i32;
+                    let pow = 10f64.powi(prec);
+                    let round_to = |x: f64| (x * pow).round() / pow;
+                    for (i, r) in results.iter().enumerate() {
+                        if wrote_any || i > 0 { write!(f, ",").ok(); }
+                        let obj = serde_json::json!({
+                            "timestamp": fmt_ts(r.t),
+                            "open": round_to(r.o),
+                            "high": round_to(r.h),
+                            "low": round_to(r.l),
+                            "close": round_to(r.c),
+                            "volume": r.v.map(|v| round_to(v)),
+                            "vw": r.vw.map(|x| round_to(x)),
+                            "n": r.n,
+                        });
+                        write!(f, "{}", obj).ok();
+                    }
+                    f.flush().ok();
+                }
+                Sink::None => {}
+            }
+            wrote_any = wrote_any || !results.is_empty();
         }
-        wrote_any = wrote_any || !results.is_empty();
 
         // Determine next page
         next = match aggs.next_url {
@@ -291,6 +332,8 @@ async fn download(args: DownloadArgs) -> Result<()> {
 
     if !wrote_any {
         eprintln!("No data returned for {} between {} and {}", args.ticker, args.from, args.to);
+    } else if args.split_by_day {
+        eprintln!("Saved per-day CSV files under output/YYYY/MM");
     } else {
         eprintln!("Saved to {}", out_path);
     }
@@ -410,5 +453,31 @@ mod tests {
         ]);
         let Commands::Download(args) = cli.command;
         assert_eq!(args.max_decimals, 4);
+    }
+
+    #[test]
+    fn test_cli_split_by_day_flag() {
+        // default is false
+        let cli = Cli::parse_from([
+            "polygon-data-downloader",
+            "download",
+            "-t","AAPL",
+            "-f","2025-01-01",
+            "-T","2025-01-01",
+        ]);
+        let Commands::Download(args) = cli.command;
+        assert!(!args.split_by_day);
+
+        // explicit
+        let cli2 = Cli::parse_from([
+            "polygon-data-downloader",
+            "download",
+            "-t","AAPL",
+            "-f","2025-01-01",
+            "-T","2025-01-01",
+            "--split-by-day",
+        ]);
+        let Commands::Download(args2) = cli2.command;
+        assert!(args2.split_by_day);
     }
 }
