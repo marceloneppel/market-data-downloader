@@ -1,7 +1,7 @@
 use std::{env, time::Duration};
 
-use anyhow::{anyhow, Context, Result};
-use chrono::{NaiveDate, Utc, TimeZone, Datelike};
+use anyhow::{Context, Result, anyhow};
+use chrono::{Datelike, NaiveDate, TimeZone, Utc};
 use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 use reqwest::Url;
 use serde::Deserialize;
@@ -25,10 +25,16 @@ enum Commands {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
-enum OutputFormat { Csv, Json }
+enum OutputFormat {
+    Csv,
+    Json,
+}
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
-enum Granularity { Minute, Day }
+enum Granularity {
+    Minute,
+    Day,
+}
 
 #[derive(Parser, Debug)]
 struct DownloadArgs {
@@ -89,12 +95,12 @@ struct AggsResponse {
 
 #[derive(Debug, Deserialize)]
 struct Agg {
-    t: i64,   // timestamp in ms
-    o: f64,   // open
-    h: f64,   // high
-    l: f64,   // low
-    c: f64,   // close
-    v: Option<f64>,   // volume may be missing for indices
+    t: i64,         // timestamp in ms
+    o: f64,         // open
+    h: f64,         // high
+    l: f64,         // low
+    c: f64,         // close
+    v: Option<f64>, // volume may be missing for indices
     vw: Option<f64>,
     n: Option<i64>,
 }
@@ -116,11 +122,20 @@ pub(crate) fn fmt_ts(ms: i64) -> String {
     }
 }
 
-pub(crate) fn compute_out_path(ticker: &str, from: NaiveDate, to: NaiveDate, format: OutputFormat, out: &Option<String>) -> String {
+pub(crate) fn compute_out_path(
+    ticker: &str,
+    from: NaiveDate,
+    to: NaiveDate,
+    format: OutputFormat,
+    out: &Option<String>,
+) -> String {
     match out {
         Some(p) => p.clone(),
         None => {
-            let ext = match format { OutputFormat::Csv => "csv", OutputFormat::Json => "json" };
+            let ext = match format {
+                OutputFormat::Csv => "csv",
+                OutputFormat::Json => "json",
+            };
             // Place files under output/ instead of project root
             format!("output/{}_{}_{}.{}", ticker, from, to, ext)
         }
@@ -153,14 +168,24 @@ async fn download(args: DownloadArgs) -> Result<()> {
     let mut writer_csv;
     let mut wrote_any = false;
 
-    enum Sink { Csv(csv::Writer<std::fs::File>), Json(std::fs::File), None }
+    enum Sink {
+        Csv(csv::Writer<std::fs::File>),
+        Json(std::fs::File),
+        None,
+    }
     let mut sink: Sink = Sink::None;
 
     // Construct initial URL for v2 aggs range with selected granularity
-    let gran = match args.granularity { Granularity::Minute => "minute", Granularity::Day => "day" };
+    let gran = match args.granularity {
+        Granularity::Minute => "minute",
+        Granularity::Day => "day",
+    };
     let mut url = Url::parse(&format!(
         "https://api.polygon.io/v2/aggs/ticker/{}/range/1/{}/{}/{}",
-        urlencoding::encode(&args.ticker), gran, args.from, args.to
+        urlencoding::encode(&args.ticker),
+        gran,
+        args.from,
+        args.to
     ))?;
     url.query_pairs_mut()
         .append_pair("adjusted", "true")
@@ -174,7 +199,9 @@ async fn download(args: DownloadArgs) -> Result<()> {
     loop {
         let Some(fetch_url) = next.take() else { break };
         page += 1;
-        if args.verbose > 0 { eprintln!("Fetching page {}: {}", page, fetch_url); }
+        if args.verbose > 0 {
+            eprintln!("Fetching page {}: {}", page, fetch_url);
+        }
         let resp = client
             .get(fetch_url.clone())
             .send()
@@ -187,7 +214,8 @@ async fn download(args: DownloadArgs) -> Result<()> {
             if status.as_u16() == 403 {
                 return Err(anyhow!(
                     "HTTP 403 Forbidden: {}\nHint: Your API key may not be entitled to this data. Try:\n- Using --granularity day (daily aggregates) instead of minute\n- Using a different ticker (e.g., equities like AAPL)\n- Upgrading your Polygon plan for minute/index data\nRequest URL: {}",
-                    text, fetch_url
+                    text,
+                    fetch_url
                 ));
             }
             return Err(anyhow!("HTTP {}: {}", status, text));
@@ -208,9 +236,16 @@ async fn download(args: DownloadArgs) -> Result<()> {
                     let month = date.month();
                     let day = date.day();
                     let dir = format!("output/{}/{:02}", year, month);
-                    create_dir_all(&dir).with_context(|| format!("Cannot create directory {}", dir))?;
-                    let file_path = format!("{}/{}_{}-{:02}-{:02}.csv", dir, args.ticker, year, month, day);
-                    let mut file = OpenOptions::new().create(true).append(true).open(&file_path)
+                    create_dir_all(&dir)
+                        .with_context(|| format!("Cannot create directory {}", dir))?;
+                    let file_path = format!(
+                        "{}/{}_{}-{:02}-{:02}.csv",
+                        dir, args.ticker, year, month, day
+                    );
+                    let mut file = OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&file_path)
                         .with_context(|| format!("Cannot open {}", file_path))?;
                     let is_new = metadata(&file_path).map(|m| m.len() == 0).unwrap_or(true);
                     // Write header if new and not omitted
@@ -222,7 +257,10 @@ async fn download(args: DownloadArgs) -> Result<()> {
                     let h = format!("{:.1$}", r.h, prec);
                     let l = format!("{:.1$}", r.l, prec);
                     let c = format!("{:.1$}", r.c, prec);
-                    let v = match r.v { Some(val) => format!("{:.1$}", val, prec), None => String::from("") };
+                    let v = match r.v {
+                        Some(val) => format!("{:.1$}", val, prec),
+                        None => String::from(""),
+                    };
                     writeln!(file, "{},{},{},{},{},{},{}", args.ticker, ts, o, h, l, c, v).ok();
                 }
             }
@@ -235,8 +273,9 @@ async fn download(args: DownloadArgs) -> Result<()> {
                         // Ensure parent directory exists if path includes directories
                         if let Some(parent) = std::path::Path::new(&out_path).parent() {
                             if !parent.as_os_str().is_empty() {
-                                std::fs::create_dir_all(parent)
-                                    .with_context(|| format!("Cannot create directory {}", parent.display()))?;
+                                std::fs::create_dir_all(parent).with_context(|| {
+                                    format!("Cannot create directory {}", parent.display())
+                                })?;
                             }
                         }
                         let file = std::fs::File::create(&out_path)
@@ -244,7 +283,17 @@ async fn download(args: DownloadArgs) -> Result<()> {
                         writer_csv = csv::Writer::from_writer(file);
                         // write header (unless omitted)
                         if !args.no_header {
-                            writer_csv.write_record(["ticker", "timestamp", "open", "high", "low", "close", "volume"]).ok();
+                            writer_csv
+                                .write_record([
+                                    "ticker",
+                                    "timestamp",
+                                    "open",
+                                    "high",
+                                    "low",
+                                    "close",
+                                    "volume",
+                                ])
+                                .ok();
                         }
                         sink = Sink::Csv(writer_csv);
                     }
@@ -252,8 +301,9 @@ async fn download(args: DownloadArgs) -> Result<()> {
                         // Ensure parent directory exists if path includes directories
                         if let Some(parent) = std::path::Path::new(&out_path).parent() {
                             if !parent.as_os_str().is_empty() {
-                                std::fs::create_dir_all(parent)
-                                    .with_context(|| format!("Cannot create directory {}", parent.display()))?;
+                                std::fs::create_dir_all(parent).with_context(|| {
+                                    format!("Cannot create directory {}", parent.display())
+                                })?;
                             }
                         }
                         let file = std::fs::File::create(&out_path)
@@ -298,7 +348,9 @@ async fn download(args: DownloadArgs) -> Result<()> {
                     let pow = 10f64.powi(prec);
                     let round_to = |x: f64| (x * pow).round() / pow;
                     for (i, r) in results.iter().enumerate() {
-                        if wrote_any || i > 0 { write!(f, ",").ok(); }
+                        if wrote_any || i > 0 {
+                            write!(f, ",").ok();
+                        }
                         let obj = serde_json::json!({
                             "timestamp": fmt_ts(r.t),
                             "open": round_to(r.o),
@@ -330,10 +382,14 @@ async fn download(args: DownloadArgs) -> Result<()> {
         };
 
         if next.is_some() {
-            if args.verbose > 0 { eprintln!("Sleeping {}s to respect rate limit...", args.wait_secs); }
+            if args.verbose > 0 {
+                eprintln!("Sleeping {}s to respect rate limit...", args.wait_secs);
+            }
             tokio::time::sleep(Duration::from_secs(args.wait_secs)).await;
         } else {
-            if args.verbose > 0 { eprintln!("Done. Total pages: {}", page); }
+            if args.verbose > 0 {
+                eprintln!("Done. Total pages: {}", page);
+            }
             break;
         }
     }
@@ -346,7 +402,10 @@ async fn download(args: DownloadArgs) -> Result<()> {
     }
 
     if !wrote_any {
-        eprintln!("No data returned for {} between {} and {}", args.ticker, args.from, args.to);
+        eprintln!(
+            "No data returned for {} between {} and {}",
+            args.ticker, args.from, args.to
+        );
     } else if args.split_by_day {
         eprintln!("Saved per-day CSV files under output/YYYY/MM");
     } else {
@@ -403,7 +462,7 @@ mod tests {
         let mut u = Url::parse("https://example.com/path?foo=1").unwrap();
         ensure_api_key_present(&mut u, "KEY123");
         let query: Vec<_> = u.query_pairs().collect();
-        assert!(query.iter().any(|(k,v)| k=="apiKey" && v=="KEY123"));
+        assert!(query.iter().any(|(k, v)| k == "apiKey" && v == "KEY123"));
     }
 
     #[test]
@@ -412,7 +471,7 @@ mod tests {
         ensure_api_key_present(&mut u, "SHOULD_NOT_OVERRIDE");
         // ensure existing value is not overridden
         let pairs: Vec<_> = u.query_pairs().collect();
-        let found: Vec<_> = pairs.into_iter().filter(|(k,_)| k=="apiKey").collect();
+        let found: Vec<_> = pairs.into_iter().filter(|(k, _)| k == "apiKey").collect();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].1, "ABC");
     }
@@ -423,9 +482,12 @@ mod tests {
         let cli = Cli::parse_from([
             "market-data-downloader",
             "download",
-            "-t","AAPL",
-            "-f","2025-01-01",
-            "-T","2025-01-01",
+            "-t",
+            "AAPL",
+            "-f",
+            "2025-01-01",
+            "-T",
+            "2025-01-01",
         ]);
         let Commands::Download(args) = cli.command;
         assert!(!args.no_header);
@@ -434,9 +496,12 @@ mod tests {
         let cli2 = Cli::parse_from([
             "market-data-downloader",
             "download",
-            "-t","AAPL",
-            "-f","2025-01-01",
-            "-T","2025-01-01",
+            "-t",
+            "AAPL",
+            "-f",
+            "2025-01-01",
+            "-T",
+            "2025-01-01",
             "--no-header",
         ]);
         let Commands::Download(args2) = cli2.command;
@@ -448,9 +513,12 @@ mod tests {
         let cli = Cli::parse_from([
             "market-data-downloader",
             "download",
-            "-t","AAPL",
-            "-f","2025-01-01",
-            "-T","2025-01-01",
+            "-t",
+            "AAPL",
+            "-f",
+            "2025-01-01",
+            "-T",
+            "2025-01-01",
         ]);
         let Commands::Download(args) = cli.command;
         assert_eq!(args.max_decimals, 2);
@@ -461,10 +529,14 @@ mod tests {
         let cli = Cli::parse_from([
             "market-data-downloader",
             "download",
-            "-t","AAPL",
-            "-f","2025-01-01",
-            "-T","2025-01-01",
-            "--max-decimals","4",
+            "-t",
+            "AAPL",
+            "-f",
+            "2025-01-01",
+            "-T",
+            "2025-01-01",
+            "--max-decimals",
+            "4",
         ]);
         let Commands::Download(args) = cli.command;
         assert_eq!(args.max_decimals, 4);
@@ -476,9 +548,12 @@ mod tests {
         let cli = Cli::parse_from([
             "market-data-downloader",
             "download",
-            "-t","AAPL",
-            "-f","2025-01-01",
-            "-T","2025-01-01",
+            "-t",
+            "AAPL",
+            "-f",
+            "2025-01-01",
+            "-T",
+            "2025-01-01",
         ]);
         let Commands::Download(args) = cli.command;
         assert!(!args.split_by_day);
@@ -487,9 +562,12 @@ mod tests {
         let cli2 = Cli::parse_from([
             "market-data-downloader",
             "download",
-            "-t","AAPL",
-            "-f","2025-01-01",
-            "-T","2025-01-01",
+            "-t",
+            "AAPL",
+            "-f",
+            "2025-01-01",
+            "-T",
+            "2025-01-01",
             "--split-by-day",
         ]);
         let Commands::Download(args2) = cli2.command;

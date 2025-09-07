@@ -1,6 +1,6 @@
-use std::process::Command;
-use std::fs;
 use chrono::NaiveDate;
+use std::fs;
+use std::process::Command;
 
 fn bin() -> std::path::PathBuf {
     // Path to the built binary during `cargo test`
@@ -38,11 +38,16 @@ fn unauthorized_asset_spx_should_fail() {
     env_with_key(&mut cmd);
     let assert = cmd
         .arg("download")
-        .arg("-t").arg("I:SPX")
-        .arg("-f").arg(from.to_string())
-        .arg("-T").arg(to.to_string())
-        .arg("--granularity").arg("minute")
-        .arg("--format").arg("csv")
+        .arg("-t")
+        .arg("I:SPX")
+        .arg("-f")
+        .arg(from.to_string())
+        .arg("-T")
+        .arg(to.to_string())
+        .arg("--granularity")
+        .arg("minute")
+        .arg("--format")
+        .arg("csv")
         .arg("-v")
         .output()
         .expect("failed to execute command");
@@ -62,7 +67,10 @@ fn unauthorized_asset_spx_should_fail() {
     // If it succeeded unexpectedly, ensure file is not created with data
     if fs::metadata(&out).is_ok() {
         let sz = fs::metadata(&out).unwrap().len();
-        assert!(sz == 0 || !success, "Unauthorized download produced a non-empty file");
+        assert!(
+            sz == 0 || !success,
+            "Unauthorized download produced a non-empty file"
+        );
         let _ = fs::remove_file(&out);
     }
 }
@@ -83,11 +91,16 @@ fn minute_data_ndx_should_succeed() {
     env_with_key(&mut cmd);
     let output = cmd
         .arg("download")
-        .arg("-t").arg("I:NDX")
-        .arg("-f").arg(from.to_string())
-        .arg("-T").arg(to.to_string())
-        .arg("--granularity").arg("minute")
-        .arg("--format").arg("csv")
+        .arg("-t")
+        .arg("I:NDX")
+        .arg("-f")
+        .arg(from.to_string())
+        .arg("-T")
+        .arg(to.to_string())
+        .arg("--granularity")
+        .arg("minute")
+        .arg("--format")
+        .arg("csv")
         .output()
         .expect("failed to run");
 
@@ -100,7 +113,10 @@ fn minute_data_ndx_should_succeed() {
     }
 
     let data = fs::read_to_string(&out).expect("output file missing");
-    assert!(data.lines().count() > 1, "CSV should have header and at least one row");
+    assert!(
+        data.lines().count() > 1,
+        "CSV should have header and at least one row"
+    );
     // Clean up large files
     let _ = fs::remove_file(&out);
 }
@@ -121,11 +137,16 @@ fn daily_data_aapl_should_succeed() {
     env_with_key(&mut cmd);
     let output = cmd
         .arg("download")
-        .arg("-t").arg("AAPL")
-        .arg("-f").arg(from.to_string())
-        .arg("-T").arg(to.to_string())
-        .arg("--granularity").arg("day")
-        .arg("--format").arg("csv")
+        .arg("-t")
+        .arg("AAPL")
+        .arg("-f")
+        .arg(from.to_string())
+        .arg("-T")
+        .arg(to.to_string())
+        .arg("--granularity")
+        .arg("day")
+        .arg("--format")
+        .arg("csv")
         .output()
         .expect("failed to run");
 
@@ -138,10 +159,12 @@ fn daily_data_aapl_should_succeed() {
     }
 
     let data = fs::read_to_string(&out).expect("output file missing");
-    assert!(data.lines().count() > 1, "CSV should have header and at least one row");
+    assert!(
+        data.lines().count() > 1,
+        "CSV should have header and at least one row"
+    );
     let _ = fs::remove_file(&out);
 }
-
 
 #[test]
 fn missing_api_key_should_fail_fast() {
@@ -156,11 +179,16 @@ fn missing_api_key_should_fail_fast() {
 
     let output = cmd
         .arg("download")
-        .arg("-t").arg("AAPL")
-        .arg("-f").arg(from.to_string())
-        .arg("-T").arg(to.to_string())
-        .arg("--granularity").arg("day")
-        .arg("--format").arg("csv")
+        .arg("-t")
+        .arg("AAPL")
+        .arg("-f")
+        .arg(from.to_string())
+        .arg("-T")
+        .arg(to.to_string())
+        .arg("--granularity")
+        .arg("day")
+        .arg("--format")
+        .arg("csv")
         .output()
         .expect("failed to run child process");
 
@@ -181,7 +209,6 @@ fn missing_api_key_should_fail_fast() {
     );
 }
 
-
 #[test]
 fn csv_no_header_flag_should_omit_header() {
     if std::env::var("POLYGON_API_KEY").is_err() {
@@ -197,11 +224,16 @@ fn csv_no_header_flag_should_omit_header() {
     env_with_key(&mut cmd);
     let output = cmd
         .arg("download")
-        .arg("-t").arg("AAPL")
-        .arg("-f").arg(from.to_string())
-        .arg("-T").arg(to.to_string())
-        .arg("--granularity").arg("day")
-        .arg("--format").arg("csv")
+        .arg("-t")
+        .arg("AAPL")
+        .arg("-f")
+        .arg(from.to_string())
+        .arg("-T")
+        .arg(to.to_string())
+        .arg("--granularity")
+        .arg("day")
+        .arg("--format")
+        .arg("csv")
         .arg("--no-header")
         .output()
         .expect("failed to run");
@@ -218,7 +250,12 @@ fn csv_no_header_flag_should_omit_header() {
     let mut lines = data.lines();
     if let Some(first) = lines.next() {
         // The first line should not be the header when --no-header is used.
-        assert!(!first.to_lowercase().contains("ticker,timestamp,open,high,low,close,volume"), "Header should be omitted with --no-header");
+        assert!(
+            !first
+                .to_lowercase()
+                .contains("ticker,timestamp,open,high,low,close,volume"),
+            "Header should be omitted with --no-header"
+        );
     } else {
         panic!("CSV file is empty");
     }
