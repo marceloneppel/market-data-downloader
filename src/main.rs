@@ -121,7 +121,8 @@ pub(crate) fn compute_out_path(ticker: &str, from: NaiveDate, to: NaiveDate, for
         Some(p) => p.clone(),
         None => {
             let ext = match format { OutputFormat::Csv => "csv", OutputFormat::Json => "json" };
-            format!("{}_{}_{}.{}", ticker, from, to, ext)
+            // Place files under output/ instead of project root
+            format!("output/{}_{}_{}.{}", ticker, from, to, ext)
         }
     }
 }
@@ -231,6 +232,13 @@ async fn download(args: DownloadArgs) -> Result<()> {
                 // Open sink lazily
                 match args.format {
                     OutputFormat::Csv => {
+                        // Ensure parent directory exists if path includes directories
+                        if let Some(parent) = std::path::Path::new(&out_path).parent() {
+                            if !parent.as_os_str().is_empty() {
+                                std::fs::create_dir_all(parent)
+                                    .with_context(|| format!("Cannot create directory {}", parent.display()))?;
+                            }
+                        }
                         let file = std::fs::File::create(&out_path)
                             .with_context(|| format!("Cannot create {}", out_path))?;
                         writer_csv = csv::Writer::from_writer(file);
@@ -241,6 +249,13 @@ async fn download(args: DownloadArgs) -> Result<()> {
                         sink = Sink::Csv(writer_csv);
                     }
                     OutputFormat::Json => {
+                        // Ensure parent directory exists if path includes directories
+                        if let Some(parent) = std::path::Path::new(&out_path).parent() {
+                            if !parent.as_os_str().is_empty() {
+                                std::fs::create_dir_all(parent)
+                                    .with_context(|| format!("Cannot create directory {}", parent.display()))?;
+                            }
+                        }
                         let file = std::fs::File::create(&out_path)
                             .with_context(|| format!("Cannot create {}", out_path))?;
                         // Write opening bracket for an array
@@ -363,7 +378,7 @@ mod tests {
         let d1 = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
         let d2 = NaiveDate::from_ymd_opt(2025, 1, 31).unwrap();
         let out = compute_out_path("I:NDX", d1, d2, OutputFormat::Csv, &None);
-        assert_eq!(out, "I:NDX_2025-01-01_2025-01-31.csv");
+        assert_eq!(out, "output/I:NDX_2025-01-01_2025-01-31.csv");
     }
 
     #[test]
@@ -371,7 +386,7 @@ mod tests {
         let d1 = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
         let d2 = NaiveDate::from_ymd_opt(2024, 2, 2).unwrap();
         let out = compute_out_path("AAPL", d1, d2, OutputFormat::Json, &None);
-        assert_eq!(out, "AAPL_2024-02-01_2024-02-02.json");
+        assert_eq!(out, "output/AAPL_2024-02-01_2024-02-02.json");
     }
 
     #[test]

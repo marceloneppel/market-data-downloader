@@ -31,7 +31,7 @@ fn unauthorized_asset_spx_should_fail() {
     // Attempt minute data for I:SPX which should be forbidden on basic/free plan
     let from = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
     let to = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
-    let out = format!("I:SPX_{}_{}.csv", from, to);
+    let out = format!("output/I:SPX_{}_{}.csv", from, to);
     cleanup(&out);
 
     let mut cmd = Command::new(bin());
@@ -76,7 +76,7 @@ fn minute_data_ndx_should_succeed() {
     // Use a single day in past market day to keep dataset small
     let from = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
     let to = from;
-    let out = format!("I:NDX_{}_{}.csv", from, to);
+    let out = format!("output/I:NDX_{}_{}.csv", from, to);
     cleanup(&out);
 
     let mut cmd = Command::new(bin());
@@ -114,7 +114,7 @@ fn daily_data_aapl_should_succeed() {
     // AAPL daily data over a short range
     let from = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
     let to = NaiveDate::from_ymd_opt(2025, 1, 10).unwrap();
-    let out = format!("AAPL_{}_{}.csv", from, to);
+    let out = format!("output/AAPL_{}_{}.csv", from, to);
     cleanup(&out);
 
     let mut cmd = Command::new(bin());
@@ -190,7 +190,7 @@ fn csv_no_header_flag_should_omit_header() {
     }
     let from = NaiveDate::from_ymd_opt(2025, 1, 2).unwrap();
     let to = from;
-    let out = format!("AAPL_{}_{}.csv", from, to);
+    let out = format!("output/AAPL_{}_{}.csv", from, to);
     cleanup(&out);
 
     let mut cmd = Command::new(bin());
