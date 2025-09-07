@@ -1,6 +1,6 @@
 # Market Data Downloader
 
-A small Rust CLI to download market data aggregates from Polygon.io. It supports downloading minute or daily aggregates for equities, indices, and more, and saving them as CSV or JSON.
+A small Rust CLI to download market data aggregates from [Polygon.io](https://polygon.io/). It supports downloading minute or daily aggregates for equities, indices, and more, and saving them as CSV or JSON.
 
 Note on data providers: for now, the only available market data provider is Polygon.io. In the future, more providers will be added.
 
