@@ -6,7 +6,7 @@ use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 use reqwest::Url;
 use serde::Deserialize;
 
-/// Polygon.io minute data downloader
+/// Market data downloader
 ///
 /// Examples:
 ///   market-data-downloader download --apikey=... --ticker AAPL --from 2024-01-01 --to 2024-01-03 --out aapl.csv
@@ -20,7 +20,7 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Download minute-level aggregates for an index
+    /// Download aggregates for an index, stock, or crypto ticker
     Download(DownloadArgs),
 }
 
@@ -32,7 +32,7 @@ enum Granularity { Minute, Day }
 
 #[derive(Parser, Debug)]
 struct DownloadArgs {
-    /// Polygon index ticker, e.g. I:SPX, I:NDX, I:VIX
+    /// Ticker, e.g. AAPL, I:SPX, I:NDX, I:VIX
     #[arg(short = 't', long = "ticker")]
     ticker: String,
 
