@@ -202,7 +202,7 @@ async fn download(args: DownloadArgs) -> Result<()> {
 
     // Prepare provider-specific initial URL and paging
     let mut page = 0usize;
-    let mut next: Option<Url> = None;
+    let mut next: Option<Url>;
 
     match args.provider {
         Provider::Polygon => {
@@ -301,8 +301,9 @@ async fn download(args: DownloadArgs) -> Result<()> {
                 }
                 let td: TDResp = resp.json().await.with_context(|| "Invalid JSON from Twelve Data API")?;
                 if let Some(s) = &td.status {
-                    if s.to_lowercase() == "error" {
-                        return Err(anyhow!("Twelve Data API error"));
+                    if s.eq_ignore_ascii_case("error") {
+                        let msg = td.message.unwrap_or_else(|| String::from("Unknown Twelve Data error"));
+                        return Err(anyhow!("Twelve Data API error: {}", msg));
                     }
                 }
                 let mut vec = Vec::new();
@@ -312,7 +313,7 @@ async fn download(args: DownloadArgs) -> Result<()> {
                         let dt = chrono::NaiveDateTime::parse_from_str(&v.datetime, "%Y-%m-%d %H:%M:%S")
                             .or_else(|_| chrono::NaiveDateTime::parse_from_str(&v.datetime, "%Y-%m-%d"))
                             .with_context(|| format!("Invalid datetime in Twelve Data response: {}", v.datetime))?;
-                        let ts = chrono::DateTime::<chrono::Utc>::from_utc(dt, chrono::Utc).timestamp_millis();
+                        let ts = Utc.from_utc_datetime(&dt).timestamp_millis();
                         let parsef = |s: &str| -> Result<f64> { Ok(s.parse::<f64>()?) };
                         let o = parsef(&v.open)?;
                         let h = parsef(&v.high)?;
@@ -322,8 +323,8 @@ async fn download(args: DownloadArgs) -> Result<()> {
                         vec.push(Agg { t: ts, o, h, l, c, v: vol, vw: None, n: None });
                     }
                 }
-                // For simplicity (and to respect rate limits), do not paginate Twelve Data in tests; return no next
-                (vec, None)
+                let next_token = td.next_page_token;
+                (vec, next_token)
             }
         };
 
@@ -483,7 +484,25 @@ async fn download(args: DownloadArgs) -> Result<()> {
                 }
                 None => None,
             },
-            Provider::TwelveData => None, // not paginating for TD in this implementation
+            Provider::TwelveData => match next_from_resp {
+                Some(token) => {
+                    // Build next page URL by adding page_token parameter
+                    let mut u = fetch_url.clone();
+                    // remove any existing page_token before appending
+                    let existing: Vec<(String, String)> = u.query_pairs().map(|(k,v)| (k.to_string(), v.to_string())).collect();
+                    u.set_query(None);
+                    {
+                        let mut qp = u.query_pairs_mut();
+                        for (k, v) in existing {
+                            if k != "page_token" && k != "next_page_token" { qp.append_pair(&k, &v); }
+                        }
+                        // Twelve Data uses page_token as request param
+                        qp.append_pair("page_token", &token);
+                    }
+                    Some(u)
+                }
+                None => None,
+            },
         };
 
         if next.is_some() {
