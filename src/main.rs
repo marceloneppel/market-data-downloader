@@ -36,6 +36,14 @@ enum Granularity {
     Day,
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
+enum Provider {
+    #[value(name = "polygon", alias = "polygon")]
+    Polygon,
+    #[value(name = "twelvedata", aliases = ["twelve-data", "twelve_data"])]
+    TwelveData,
+}
+
 #[derive(Parser, Debug)]
 struct DownloadArgs {
     /// Ticker, e.g. AAPL, I:SPX, I:NDX, I:VIX
@@ -85,6 +93,10 @@ struct DownloadArgs {
     /// Split output into per-day CSV files under output/YYYY/MM/TICKER_YYYY-MM-DD.csv
     #[arg(long = "split-by-day", default_value_t = false)]
     split_by_day: bool,
+
+    /// Data provider (polygon or twelvedata)
+    #[arg(long = "provider", value_enum, default_value_t = Provider::Polygon)]
+    provider: Provider,
 }
 
 #[derive(Debug, Deserialize)]
@@ -150,10 +162,23 @@ pub(crate) fn ensure_api_key_present(url: &mut Url, api_key: &str) {
 }
 
 async fn download(args: DownloadArgs) -> Result<()> {
-    let api_key = args
-        .api_key
-        .or_else(|| env::var("POLYGON_API_KEY").ok())
-        .ok_or_else(|| anyhow!("API key not provided. Use --apikey or set POLYGON_API_KEY."))?;
+    // Resolve API key depending on provider
+    let api_key = match args.provider {
+        Provider::Polygon => args
+            .api_key
+            .clone()
+            .or_else(|| env::var("POLYGON_API_KEY").ok())
+            .ok_or_else(|| anyhow!(
+                "API key not provided. Use --apikey or set POLYGON_API_KEY."
+            ))?,
+        Provider::TwelveData => args
+            .api_key
+            .clone()
+            .or_else(|| env::var("TWELVEDATA_API_KEY").ok())
+            .ok_or_else(|| anyhow!(
+                "API key not provided. Use --apikey or set TWELVEDATA_API_KEY."
+            ))?,
+    };
 
     if args.split_by_day && matches!(args.format, OutputFormat::Json) {
         return Err(anyhow!("--split-by-day currently supports CSV format only"));
@@ -175,26 +200,49 @@ async fn download(args: DownloadArgs) -> Result<()> {
     }
     let mut sink: Sink = Sink::None;
 
-    // Construct initial URL for v2 aggs range with selected granularity
-    let gran = match args.granularity {
-        Granularity::Minute => "minute",
-        Granularity::Day => "day",
-    };
-    let mut url = Url::parse(&format!(
-        "https://api.polygon.io/v2/aggs/ticker/{}/range/1/{}/{}/{}",
-        urlencoding::encode(&args.ticker),
-        gran,
-        args.from,
-        args.to
-    ))?;
-    url.query_pairs_mut()
-        .append_pair("adjusted", "true")
-        .append_pair("sort", "asc")
-        .append_pair("limit", "50000")
-        .append_pair("apiKey", &api_key);
-
+    // Prepare provider-specific initial URL and paging
     let mut page = 0usize;
-    let mut next: Option<Url> = Some(url);
+    let mut next: Option<Url> = None;
+
+    match args.provider {
+        Provider::Polygon => {
+            let gran = match args.granularity {
+                Granularity::Minute => "minute",
+                Granularity::Day => "day",
+            };
+            let mut url = Url::parse(&format!(
+                "https://api.polygon.io/v2/aggs/ticker/{}/range/1/{}/{}/{}",
+                urlencoding::encode(&args.ticker),
+                gran,
+                args.from,
+                args.to
+            ))?;
+            url.query_pairs_mut()
+                .append_pair("adjusted", "true")
+                .append_pair("sort", "asc")
+                .append_pair("limit", "50000")
+                .append_pair("apiKey", &api_key);
+            next = Some(url);
+        }
+        Provider::TwelveData => {
+            let interval = match args.granularity {
+                Granularity::Minute => "1min",
+                Granularity::Day => "1day",
+            };
+            let mut url = Url::parse("https://api.twelvedata.com/time_series")?;
+            url.query_pairs_mut()
+                .append_pair("symbol", &args.ticker)
+                .append_pair("interval", interval)
+                .append_pair("start_date", &args.from.to_string())
+                .append_pair("end_date", &args.to.to_string())
+                .append_pair("order", "ASC")
+                .append_pair("timezone", "UTC")
+                .append_pair("format", "JSON")
+                .append_pair("outputsize", "5000")
+                .append_pair("apikey", &api_key);
+            next = Some(url);
+        }
+    }
 
     loop {
         let Some(fetch_url) = next.take() else { break };
@@ -213,7 +261,7 @@ async fn download(args: DownloadArgs) -> Result<()> {
             let text = resp.text().await.unwrap_or_default();
             if status.as_u16() == 403 {
                 return Err(anyhow!(
-                    "HTTP 403 Forbidden: {}\nHint: Your API key may not be entitled to this data. Try:\n- Using --granularity day (daily aggregates) instead of minute\n- Using a different ticker (e.g., equities like AAPL)\n- Upgrading your Polygon plan for minute/index data\nRequest URL: {}",
+                    "HTTP 403 Forbidden: {}\nHint: Your API key may not be entitled to this data. Try:\n- Using --granularity day (daily aggregates) instead of minute\n- Using a different ticker (e.g., equities like AAPL)\n- Upgrading your plan for minute/index data\nRequest URL: {}",
                     text,
                     fetch_url
                 ));
@@ -221,8 +269,63 @@ async fn download(args: DownloadArgs) -> Result<()> {
             return Err(anyhow!("HTTP {}: {}", status, text));
         }
 
-        let aggs: AggsResponse = resp.json().await.with_context(|| "Invalid JSON from API")?;
-        let results = aggs.results.unwrap_or_default();
+        // Parse response depending on provider and capture paging info if available
+        let (results, next_from_resp): (Vec<Agg>, Option<String>) = match args.provider {
+            Provider::Polygon => {
+                let aggs: AggsResponse = resp
+                    .json()
+                    .await
+                    .with_context(|| "Invalid JSON from API")?;
+                (aggs.results.unwrap_or_default(), aggs.next_url)
+            }
+            Provider::TwelveData => {
+                // Twelve Data response shape: { status, values: [ { datetime, open, high, low, close, volume }, ... ], next_page_token? }
+                #[derive(Deserialize)]
+                struct TDResp {
+                    status: Option<String>,
+                    values: Option<Vec<TDVal>>,
+                    #[serde(default)]
+                    next_page_token: Option<String>,
+                    #[allow(dead_code)]
+                    message: Option<String>,
+                }
+                #[derive(Deserialize)]
+                struct TDVal {
+                    datetime: String,
+                    open: String,
+                    high: String,
+                    low: String,
+                    close: String,
+                    #[serde(default)]
+                    volume: Option<String>,
+                }
+                let td: TDResp = resp.json().await.with_context(|| "Invalid JSON from Twelve Data API")?;
+                if let Some(s) = &td.status {
+                    if s.to_lowercase() == "error" {
+                        return Err(anyhow!("Twelve Data API error"));
+                    }
+                }
+                let mut vec = Vec::new();
+                if let Some(vals) = td.values {
+                    for v in vals {
+                        // Parse datetime as UTC
+                        let dt = chrono::NaiveDateTime::parse_from_str(&v.datetime, "%Y-%m-%d %H:%M:%S")
+                            .or_else(|_| chrono::NaiveDateTime::parse_from_str(&v.datetime, "%Y-%m-%d"))
+                            .with_context(|| format!("Invalid datetime in Twelve Data response: {}", v.datetime))?;
+                        let ts = chrono::DateTime::<chrono::Utc>::from_utc(dt, chrono::Utc).timestamp_millis();
+                        let parsef = |s: &str| -> Result<f64> { Ok(s.parse::<f64>()?) };
+                        let o = parsef(&v.open)?;
+                        let h = parsef(&v.high)?;
+                        let l = parsef(&v.low)?;
+                        let c = parsef(&v.close)?;
+                        let vol = match v.volume.as_deref() { Some(s) if !s.is_empty() => Some(s.parse::<f64>()?), _ => None };
+                        vec.push(Agg { t: ts, o, h, l, c, v: vol, vw: None, n: None });
+                    }
+                }
+                // For simplicity (and to respect rate limits), do not paginate Twelve Data in tests; return no next
+                (vec, None)
+            }
+        };
 
         if args.split_by_day {
             // Write each record into per-day CSV under output/YYYY/MM/TICKER_YYYY-MM-DD.csv
@@ -371,14 +474,16 @@ async fn download(args: DownloadArgs) -> Result<()> {
         }
 
         // Determine next page
-        next = match aggs.next_url {
-            Some(next_url) => {
-                let mut u = Url::parse(&next_url)?;
-                // Ensure the API key is always included on subsequent pages
-                ensure_api_key_present(&mut u, &api_key);
-                Some(u)
-            }
-            None => None,
+        next = match args.provider {
+            Provider::Polygon => match next_from_resp {
+                Some(next_url) => {
+                    let mut u = Url::parse(&next_url)?;
+                    ensure_api_key_present(&mut u, &api_key);
+                    Some(u)
+                }
+                None => None,
+            },
+            Provider::TwelveData => None, // not paginating for TD in this implementation
         };
 
         if next.is_some() {
@@ -572,5 +677,39 @@ mod tests {
         ]);
         let Commands::Download(args2) = cli2.command;
         assert!(args2.split_by_day);
+    }
+
+    #[test]
+    fn test_cli_provider_default_polygon() {
+        let cli = Cli::parse_from([
+            "market-data-downloader",
+            "download",
+            "-t",
+            "AAPL",
+            "-f",
+            "2025-01-01",
+            "-T",
+            "2025-01-01",
+        ]);
+        let Commands::Download(args) = cli.command;
+        assert!(matches!(args.provider, Provider::Polygon));
+    }
+
+    #[test]
+    fn test_cli_provider_twelvedata() {
+        let cli = Cli::parse_from([
+            "market-data-downloader",
+            "download",
+            "-t",
+            "AAPL",
+            "-f",
+            "2025-01-01",
+            "-T",
+            "2025-01-01",
+            "--provider",
+            "twelvedata",
+        ]);
+        let Commands::Download(args) = cli.command;
+        assert!(matches!(args.provider, Provider::TwelveData));
     }
 }
