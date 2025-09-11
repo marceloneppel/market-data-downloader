@@ -1,13 +1,18 @@
 # Market Data Downloader
 
-A small Rust CLI to download market data aggregates from [Polygon.io](https://polygon.io/). It supports downloading minute or daily aggregates for equities, indices, and more, and saving them as CSV or JSON.
+A small Rust CLI to download market data aggregates from providers such as [Polygon.io](https://polygon.io/) and [Twelve Data](https://twelvedata.com/). It supports downloading minute or daily aggregates for equities, indices, and more, and saving them as CSV or JSON.
 
-Note on data providers: for now, the only available market data provider is Polygon.io. In the future, more providers will be added.
+Data providers:
+- Polygon.io (default) — env: POLYGON_API_KEY
+- Twelve Data — env: TWELVEDATA_API_KEY
+
+Select provider with `--provider polygon` (default) or `--provider twelvedata`.
 
 ## Prerequisites
 - Rust and Cargo installed (https://rustup.rs)
-- A Polygon.io API key
-  - Provide it via the `--apikey` flag or set the environment variable `POLYGON_API_KEY`.
+- API key for the provider you intend to use:
+  - Polygon.io: provide via `--apikey` or set `POLYGON_API_KEY`.
+  - Twelve Data: provide via `--apikey` or set `TWELVEDATA_API_KEY`.
 
 ## Clone
 ```
@@ -41,7 +46,7 @@ cargo run -- \
   --out aapl.csv
 ```
 
-- JSON output using environment variable for API key:
+- JSON output using environment variable for API key (Polygon):
 ```
 POLYGON_API_KEY=YOUR_POLYGON_KEY \
   cargo run -- \
@@ -52,6 +57,19 @@ POLYGON_API_KEY=YOUR_POLYGON_KEY \
   --format json
 ```
 This will save output to `output/I:NDX_2024-02-01_2024-02-01.json` by default.
+
+- Twelve Data example (daily AAPL):
+```
+TWELVEDATA_API_KEY=YOUR_TWELVEDATA_KEY \
+  cargo run -- \
+  download \
+  -t AAPL \
+  -f 2025-01-02 \
+  -T 2025-01-02 \
+  --granularity day \
+  --format csv \
+  --provider twelvedata
+```
 
 - Minute vs Day granularity (default is minute):
 ```
